@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.mobileapplive.i5e38d"
+      "bundleIdentifier": "com.emergent.mobileapplive.i5e38d",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Take photos to share in your daily card",
+        "NSPhotoLibraryUsageDescription": "Share photos from your gallery with them"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +22,8 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.mobileapplive.i5e38d"
+      "package": "com.emergent.mobileapplive.i5e38d",
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",

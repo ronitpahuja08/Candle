@@ -1,0 +1,32 @@
+{
+  "summary": "Full E2E validation of the Jan-2026 Candle redesign + reported dead-end bug fix. Backend: 20/20 pytest cases pass (12 regression + 8 new): pairs+seed(6 mems, >=4 with image_url), wrong-code 404, by-device w/ partner, seal (open/waiting/their_turn), reveal both bodies + streak=1, double-increment guard, kiss, memory w/ image_url, plans full lifecycle create->accept->confirmed->complete->memory-with-image_url->delete, WebSocket reveal + member_joined + kiss rebroadcast, GET /api/cards/state (empty + their_turn + waiting + revealed seal), POST /api/upload + GET /api/files/{path} (200 image bytes, 404 for missing), plans accept image_url + date fields. Frontend two-device flow validated with two browser contexts. BUG FIX VERIFIED: FirstCard Locked screen now shows testID 'firstcard-continue' button and tapping it lands directly on Home which surfaces the 4-letter code + 'Send code' (home-share-code) + 'Enter their code' (home-enter-code) so a solo user is NEVER stuck. Home dashboard renders correctly with all required testIDs: welcome tiles/have-code, context-opt-*/finish, home-daily-card, home-trip-card, home-game-perfect_pair/this_or_that/draw_duel, home-thumb-kiss, flame streak number, Connect banner with 'WAITING FOR THEM' + code. Cards tab shows all 3 filter chips (conv-filter-Today/All/Your-move) and 6 conv-card-N. CardDetail seal is intact: B does not see A's body (A_UNIQ_ANSWER_XYZ) before B submits; after B locks, reveal shows both answers via reveal-answer-0 and reveal-answer-1, carddetail-save present, streak updates to 1 on A's Home via WebSocket. App reload restores directly to Home (persistence). Wall renders 6 seeded memory cards with 5 <img> tags (real Unsplash photos). Plans modal opens from home-trip-card with plans-add-fab, plans-close, 8 plan-idea-* rail items; tapping an idea opens prefilled compose with plan-title-input, 4 plan-date-* chips, 6 plan-cat-* chips, and plan-submit; submitting creates a plan that surfaces on Home with trip countdown. Perfect Pair game opens a CardDetail with carddetail-option-Me/You and carddetail-lock. No red screens, no console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_candle_api.py",
+    "/app/backend/tests/test_new_endpoints.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~690 lines - approaching the 700-line guideline. Consider splitting into routers (pairs.py, responses.py, plans.py, memories.py, uploads.py, ws.py) in the next iteration.",
+    "@app.on_event('startup'/'shutdown') are deprecated in FastAPI >=0.109. Migrate to lifespan context manager.",
+    "Invite->Home auto-advance is still 2s HTTP polling (see A_shows_B_body: WS reveal is not surfaced when A is on Home tab, only when CardDetail is open). This is acceptable UX but could subscribe to /api/ws/{pair_id} to update the Home banner instantly when the partner joins.",
+    "Upload endpoint accepts any content_type from the client without server-side validation of the file bytes (magic sniff). For an anonymous public app this is a moderate risk; consider validating via python-magic and/or capping file size (currently unbounded).",
+    "carddetail-close testID was not found in Detail (only carddetail-back). Spec says 'Close via carddetail-back / carddetail-close' so either satisfies; harmless."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_endpoints.py"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of listed flows (bug-fix, home dashboard, two-device seal+reveal+streak+persistence, wall images, plans w/ ideas rail, perfect_pair game)"},
+  "seed_data_creation": "Each POST /api/pairs seeds 6 memories (>=4 with image_url) by design. Tests use TEST-A/B/C/D/NA/NB/WA/WB/KA-prefixed device_ids to isolate from other data. Test-created plans/memories are titled TEST_* and cleaned up in the plans test via delete. Some test pairs remain in the DB but are uniquely identified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend at $EXPO_PUBLIC_BACKEND_URL/api. Two-device testing MUST use two browser contexts (browser.new_context) so AsyncStorage device IDs differ. Code extraction from Home requires filtering out the literal string 'THEM' from 'WAITING FOR THEM' (regex \\b[A-Z]{4}\\b will otherwise match it first). Playwright png screenshots MUST NOT pass quality= (unsupported). Reveal via WebSocket only updates the Home streak counter; the full both-answer display requires the CardDetail modal to be open on that device. Wall images load from Unsplash - initial load may be slow on web but not a bug.",
+  "rca_of_issue": "Reported 'Locked' dead-end reproducer: pre-fix, after FirstCard submit the app pushed a full-screen Invite view with no way back to onboarding continuation and no way to paste a partner code. Fix (verified in this run): FirstCard shows a Locked seal WITH a 'firstcard-continue' button; tapping it lands the user directly on Home where a 4-letter Connect banner exposes both 'home-share-code' and 'home-enter-code'. From that Home banner the user can either share their code or type the partner's - the user is never stuck. Confirmed on fresh device across three consecutive runs (codes PEWA, MMKA, OQKY)."
+}

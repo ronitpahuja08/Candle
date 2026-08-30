@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,6 +9,7 @@ import logging
 import random
 import string
 import asyncio
+import requests
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Set
@@ -30,6 +33,59 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------
+# Emergent Object Storage (managed) — the app talks only to us; we talk to storage.
+# ----------------------------------------------------------------------------
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "candle"
+storage_key = None
+
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data,
+        timeout=120,
+    )
+    if resp.status_code == 503:
+        # stale key: reset and retry once
+        globals()["storage_key"] = None
+        key = init_storage()
+        resp = requests.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            data=data,
+            timeout=120,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
 def now_iso() -> str:
@@ -103,8 +159,9 @@ class ResponseIn(BaseModel):
     pair_id: str
     prompt_index: int
     device_id: str
-    body: str
+    body: str = ""
     mood: Optional[str] = None
+    image_path: Optional[str] = None
 
 
 class KissIn(BaseModel):
@@ -118,6 +175,7 @@ class MemoryIn(BaseModel):
     title: str
     subtitle: Optional[str] = None
     body: Optional[str] = None
+    image_url: Optional[str] = None
     occurred_on: Optional[str] = None
 
 
@@ -129,6 +187,8 @@ class PlanIn(BaseModel):
     category: str
     notes: Optional[str] = None
     when: Optional[str] = None
+    date: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class PlanActionIn(BaseModel):
@@ -137,17 +197,23 @@ class PlanActionIn(BaseModel):
 
 SEED_MEMORIES = [
     {"kind": "two_views", "title": "Same sky, 2,100 km",
-     "subtitle": "Both answered your view right now within four minutes", "body": None},
+     "subtitle": "Both answered your view right now within four minutes", "body": None,
+     "image_url": "https://images.unsplash.com/photo-1495197359483-d092478c170a?w=800&q=70&auto=format&fit=crop"},
     {"kind": "occasion", "title": "Her 27th",
-     "subtitle": "birthday", "body": "you said the terrace was too cold and stayed anyway"},
+     "subtitle": "birthday", "body": "you said the terrace was too cold and stayed anyway",
+     "image_url": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=70&auto=format&fit=crop"},
     {"kind": "month", "title": "July, the two of you",
-     "subtitle": "28 cards · 3 outings · 84% attuned", "body": None},
+     "subtitle": "28 cards · 3 outings · 84% attuned", "body": None,
+     "image_url": None},
     {"kind": "two_views", "title": "Monday, 8am, both of us",
-     "subtitle": "Neither of us was awake", "body": None},
+     "subtitle": "Neither of us was awake", "body": None,
+     "image_url": "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800&q=70&auto=format&fit=crop"},
     {"kind": "occasion", "title": "The lake, finally",
-     "subtitle": "outing", "body": "we said we'd go for two years"},
+     "subtitle": "outing", "body": "we said we'd go for two years",
+     "image_url": "https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=800&q=70&auto=format&fit=crop"},
     {"kind": "occasion", "title": "Your handwriting on the window",
-     "subtitle": "note", "body": "I kept the photo"},
+     "subtitle": "note", "body": "I kept the photo",
+     "image_url": "https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=800&q=70&auto=format&fit=crop"},
 ]
 
 
@@ -214,6 +280,7 @@ async def create_pair(payload: CreatePairIn):
             "title": m["title"],
             "subtitle": m["subtitle"],
             "body": m["body"],
+            "image_url": m.get("image_url"),
             "occurred_on": now_iso(),
             "created_at": now_iso(),
         })
@@ -320,6 +387,77 @@ async def response_state(pair_id: str, prompt_index: int, device_id: str):
     return await build_state(pair_id, prompt_index, device_id)
 
 
+@api_router.get("/cards/state")
+async def cards_state(pair_id: str, device_id: str):
+    """Per-card summary for every prompt_index that has any activity.
+    The seal holds: partner bodies/images only ship when count == 2."""
+    rows = await db.responses.find({"pair_id": pair_id}).to_list(2000)
+    by_index: Dict[int, list] = {}
+    for r in rows:
+        by_index.setdefault(r["prompt_index"], []).append(r)
+    out = []
+    for idx, group in by_index.items():
+        count = len(group)
+        mine = any(r["device_id"] == device_id for r in group)
+        if count >= 2:
+            revealed = [clean(r) for r in sorted(group, key=lambda r: r["created_at"])]
+            state = "revealed"
+        else:
+            revealed = None
+            state = "waiting" if mine else "their_turn"
+        out.append({
+            "prompt_index": idx,
+            "count": count,
+            "mine": mine,
+            "state": state,
+            "revealed": revealed,
+        })
+    return {"cards": out}
+
+
+@api_router.post("/upload")
+async def upload_photo(
+    file: UploadFile = File(...),
+    device_id: str = Form(...),
+    pair_id: str = Form(...),
+):
+    data = await file.read()
+    ext = (file.filename or "photo.jpg").split(".")[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp", "heic", "gif"):
+        ext = "jpg"
+    path = f"{APP_NAME}/uploads/{device_id}/{uuid.uuid4()}.{ext}"
+    ctype = file.content_type or "image/jpeg"
+    try:
+        result = await run_in_threadpool(put_object, path, data, ctype)
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else 500
+        if code == 402:
+            raise HTTPException(status_code=402, detail="Storage quota reached")
+        raise HTTPException(status_code=500, detail="Upload failed")
+    stored = result.get("path", path)
+    await db.uploads.insert_one({
+        "id": str(uuid.uuid4()),
+        "path": stored,
+        "pair_id": pair_id,
+        "device_id": device_id,
+        "content_type": ctype,
+        "created_at": now_iso(),
+    })
+    return {"path": stored}
+
+
+@api_router.get("/files/{path:path}")
+async def serve_file(path: str):
+    rec = await db.uploads.find_one({"path": path})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        content, ctype = await run_in_threadpool(get_object, path)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(content=content, media_type=ctype)
+
+
 @api_router.post("/responses")
 async def submit_response(payload: ResponseIn):
     existing = await db.responses.find_one({
@@ -335,6 +473,7 @@ async def submit_response(payload: ResponseIn):
             "device_id": payload.device_id,
             "body": payload.body,
             "mood": payload.mood,
+            "image_path": payload.image_path,
             "created_at": now_iso(),
         }
         await db.responses.insert_one(row)
@@ -401,6 +540,7 @@ async def add_memory(payload: MemoryIn):
         "title": payload.title,
         "subtitle": payload.subtitle,
         "body": payload.body,
+        "image_url": payload.image_url,
         "occurred_on": payload.occurred_on or now_iso(),
         "created_at": now_iso(),
     }
@@ -431,6 +571,8 @@ async def create_plan(payload: PlanIn):
         "category": payload.category,
         "notes": payload.notes,
         "when": payload.when,
+        "date": payload.date,
+        "image_url": payload.image_url,
         "accepted_by": [payload.device_id],
         "status": "proposed",
         "created_at": now_iso(),
@@ -477,6 +619,7 @@ async def complete_plan(plan_id: str, payload: PlanActionIn):
         "title": plan["title"],
         "subtitle": plan.get("category"),
         "body": plan.get("notes") or "we finally did it",
+        "image_url": plan.get("image_url"),
         "occurred_on": now_iso(),
         "created_at": now_iso(),
     }
@@ -529,6 +672,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_init():
+    try:
+        await run_in_threadpool(init_storage)
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.warning(f"Storage init deferred: {e}")
 
 
 @app.on_event("shutdown")

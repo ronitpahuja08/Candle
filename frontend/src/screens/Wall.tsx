@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import { T, SERIF, SERIF_ITALIC, MONO } from "@/src/theme";
 import { Memory } from "@/src/screens/types";
 
@@ -27,14 +28,18 @@ function stamp(iso?: string | null): string {
     .toUpperCase();
 }
 
-function Ph({ colors, style }: { colors: [string, string]; style?: any }) {
+function Ph({ colors, style, uri }: { colors: [string, string]; style?: any; uri?: string | null }) {
   return (
     <LinearGradient
       colors={colors}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={[styles.ph, style]}
-    />
+    >
+      {uri ? (
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+      ) : null}
+    </LinearGradient>
   );
 }
 
@@ -43,7 +48,7 @@ function MemoryCard({ m }: { m: Memory }) {
     return (
       <View testID={`memory-${m.id}`} style={styles.card}>
         <View style={styles.twoRow}>
-          <Ph colors={grad(m.id, 0)} style={{ flex: 1, height: 130 }} />
+          <Ph colors={grad(m.id, 0)} style={{ flex: 1, height: 130 }} uri={m.image_url} />
           <Ph colors={grad(m.id, 3)} style={{ flex: 1, height: 130 }} />
         </View>
         <Text style={styles.date}>{stamp(m.occurred_on)}</Text>
@@ -75,7 +80,7 @@ function MemoryCard({ m }: { m: Memory }) {
   // occasion
   return (
     <View testID={`memory-${m.id}`} style={styles.card}>
-      <Ph colors={grad(m.id, 1)} style={{ height: 170 }} />
+      <Ph colors={grad(m.id, 1)} style={{ height: 190 }} uri={m.image_url} />
       <Text style={styles.date}>{stamp(m.occurred_on)}</Text>
       <Text style={styles.title}>{m.title}</Text>
       {m.body ? <Text style={styles.note}>“{m.body}”</Text> : null}

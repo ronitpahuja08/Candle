@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet, Text } from "react-native";
 import { T, SERIF } from "@/src/theme";
 import { getDeviceId } from "@/src/device";
@@ -7,12 +7,10 @@ import { Member } from "@/src/screens/types";
 import Welcome from "@/src/screens/Welcome";
 import Context from "@/src/screens/Context";
 import FirstCard from "@/src/screens/FirstCard";
-import Invite from "@/src/screens/Invite";
 import Join from "@/src/screens/Join";
 import MainApp from "@/src/MainApp";
 
-type Route = "loading" | "welcome" | "context" | "firstcard" | "invite" | "join" | "main";
-
+type Route = "loading" | "welcome" | "context" | "firstcard" | "join" | "main";
 type Session = { pair: any; members: Member[]; partner: Member | null };
 
 export default function Index() {
@@ -22,9 +20,7 @@ export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Bootstrap: device id + resolve any existing pair.
   useEffect(() => {
     (async () => {
       const id = await getDeviceId();
@@ -40,31 +36,6 @@ export default function Index() {
       } catch {}
       setRoute("welcome");
     })();
-  }, []);
-
-  // Invite screen: auto-advance the instant a second member appears.
-  const startPolling = useCallback(
-    (pairId: string) => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(async () => {
-        try {
-          const r = await api.pairsByDevice(deviceId);
-          const mine = r.pairs?.find((x: any) => x.pair.id === pairId);
-          if (mine && mine.members.length >= 2) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            setSession({ pair: mine.pair, members: mine.members, partner: mine.partner });
-            setRoute("main");
-          }
-        } catch {}
-      }, 2000);
-    },
-    [deviceId]
-  );
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
   }, []);
 
   if (route === "loading") {
@@ -120,7 +91,6 @@ export default function Index() {
       <FirstCard
         submitting={busy}
         onLocked={async (body) => {
-          setBusy(true);
           try {
             await api.submitResponse({
               pair_id: session.pair.id,
@@ -129,25 +99,8 @@ export default function Index() {
               body,
             });
           } catch {}
-          setBusy(false);
-          setTimeout(() => {
-            startPolling(session.pair.id);
-            setRoute("invite");
-          }, 1400);
         }}
-      />
-    );
-  }
-
-  if (route === "invite" && session) {
-    return (
-      <Invite
-        code={session.pair.code}
-        onHaveCode={() => {
-          if (pollRef.current) clearInterval(pollRef.current);
-          setJoinError(null);
-          setRoute("join");
-        }}
+        onContinue={() => setRoute("main")}
       />
     );
   }
@@ -181,6 +134,7 @@ export default function Index() {
         members={session.members}
         partner={session.partner}
         deviceId={deviceId}
+        onJoined={(s) => setSession(s)}
       />
     );
   }

@@ -5,20 +5,22 @@ import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardAvoidingView } from "@/src/keyboard";
 import { T, SERIF } from "@/src/theme";
-import { PROMPTS } from "@/src/prompts";
+import { cardById } from "@/src/cards";
 import Button from "@/src/components/Button";
 
 export default function FirstCard({
   onLocked,
+  onContinue,
   submitting,
 }: {
   onLocked: (body: string) => void;
+  onContinue: () => void;
   submitting?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [body, setBody] = useState("");
   const [sealed, setSealed] = useState(false);
-  const prompt = PROMPTS[0];
+  const prompt = cardById(0);
 
   const lock = () => {
     if (!body.trim()) return;
@@ -28,7 +30,7 @@ export default function FirstCard({
 
   if (sealed) {
     return (
-      <View style={[styles.sealWrap, { paddingTop: insets.top }]}>
+      <View style={[styles.sealWrap, { paddingTop: insets.top, paddingBottom: insets.bottom + 20 }]}>
         <Animated.View entering={FadeIn.duration(400)} style={styles.sealInner}>
           <View style={styles.sealBadge}>
             <Ionicons name="lock-closed" size={30} color={T.ember} />
@@ -38,6 +40,14 @@ export default function FirstCard({
           </Text>
           <Text style={styles.sealSub}>Only they can open this.</Text>
         </Animated.View>
+        <View style={{ paddingHorizontal: T.pad, width: "100%" }}>
+          <Button
+            testID="firstcard-continue"
+            label="Continue"
+            onPress={onContinue}
+            loading={submitting}
+          />
+        </View>
       </View>
     );
   }
@@ -101,7 +111,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   sealWrap: { flex: 1, backgroundColor: T.bg, alignItems: "center", justifyContent: "center" },
-  sealInner: { alignItems: "center", paddingHorizontal: 40 },
+  sealInner: { alignItems: "center", paddingHorizontal: 40, flex: 1, justifyContent: "center" },
   sealBadge: {
     width: 84,
     height: 84,

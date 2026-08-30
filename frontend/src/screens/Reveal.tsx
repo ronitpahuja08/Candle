@@ -3,9 +3,11 @@ import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeInUp, FadeIn } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { T, SERIF } from "@/src/theme";
-import { NEXT_TEASE } from "@/src/prompts";
+import { NEXT_TEASE } from "@/src/cards";
+import * as api from "@/src/api";
 import { ResponseRow, Member } from "@/src/screens/types";
 import Button from "@/src/components/Button";
 
@@ -70,7 +72,15 @@ export default function Reveal({
             style={styles.answerCard}
           >
             <Text style={styles.answerName}>{nameFor(r.device_id)}</Text>
-            <Text style={styles.answerBody}>{r.body}</Text>
+            {r.image_path ? (
+              <Image
+                source={{ uri: api.fileUrl(r.image_path) }}
+                style={styles.answerImage}
+                contentFit="cover"
+                transition={200}
+              />
+            ) : null}
+            {r.body ? <Text style={styles.answerBody}>{r.body}</Text> : null}
           </Animated.View>
         ))}
 
@@ -116,6 +126,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   answerBody: { color: T.text, fontSize: 18, lineHeight: 26 },
+  answerImage: { width: "100%", height: 220, borderRadius: 10, marginBottom: 12, backgroundColor: T.raised },
   streakRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 22 },
   streakText: { color: T.text, fontSize: 16, fontWeight: "600" },
   tease: { color: T.faint, fontSize: 14, textAlign: "center", marginTop: 14, fontStyle: "italic" },

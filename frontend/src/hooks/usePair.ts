@@ -89,7 +89,9 @@ export function usePair(
           return;
         }
         if (msg.type === "reveal") {
-          fireReveal(msg);
+          // Refresh lists for any card reveal; only fire the overlay for THIS card.
+          setDataVersion((n) => n + 1);
+          if (msg.prompt_index === promptIndex) fireReveal(msg);
         } else if (msg.type === "response_added") {
           setCount(msg.count);
           if (msg.author_device_id !== deviceId) {
@@ -141,18 +143,19 @@ export function usePair(
   }, [connect, refetch]);
 
   const submit = useCallback(
-    async (body: string, mood?: string) => {
+    async (opts: { body?: string; mood?: string; image_path?: string }) => {
       if (!pairId || !deviceId) return;
       // Optimistic: set my own answer immediately, never wait for my echo.
       setMine(true);
-      setState((prev) => (prev === "their_turn" ? "waiting" : "waiting"));
+      setState("waiting");
       try {
         const res = await api.submitResponse({
           pair_id: pairId,
           prompt_index: promptIndex,
           device_id: deviceId,
-          body,
-          mood,
+          body: opts.body || "",
+          mood: opts.mood,
+          image_path: opts.image_path,
         });
         if (res.revealed) {
           fireReveal({
