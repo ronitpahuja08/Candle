@@ -1,0 +1,29 @@
+{
+  "summary": "Full E2E validation for Candle app. Backend: 12/12 pytest cases pass (pairs+seed, wrong-code 404, by-device+partner, seal (open/waiting/their_turn), reveal with both bodies + streak=1, streak double-increment guard, kiss, memories, full plans lifecycle create->accept->complete->delete + memory-on-complete, WebSocket reveal + member_joined + kiss rebroadcast). Frontend: two-device flow validated using two browser contexts. Device A onboarding (Welcome->Context 3 opts->Name->FirstCard->Locked seal->Invite with 4-letter code) works; Device B Join flow (code + name -> main) works; A auto-advances Invite->Main within ~2s after B joins (polling every 2s); B sees their_turn hint on Today; B submits -> both sessions open Reveal modal showing BOTH bodies and '1 day streak'; app-reopen (page reload) restores directly to main app; Wall shows all 6 seeded memories (Same sky, 27th, July, lake, handwriting, Monday); Plans tab renders with plans-add-fab testID and 'Propose' empty state text. No red screens, no console errors observed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_candle_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Auto-advance from Invite -> Main is done via 2s HTTP polling in app/index.tsx (startPolling). Since a WebSocket per-pair already exists and the backend broadcasts 'member_joined', the Invite screen could subscribe to the WS instead of polling for a cleaner, near-instant handoff (currently ~2s delay).",
+    "server.py is 537 lines. Approaching the 700-line guideline but still fine; consider splitting routes (plans/, responses/, ws.py) as it grows.",
+    "Backend uses @app.on_event('shutdown') which is deprecated in newer FastAPI; consider migrating to lifespan handlers.",
+    "In build_state, responses are returned sorted by created_at only when count>=2; if the frontend ever wants deterministic ordering elsewhere, keep consistent.",
+    "Plans 'accept' logic only flips to 'confirmed' when len(accepted) >= member_count; if a member somehow leaves, this rule still works but consider explicit 2-person check."
+  ],
+  "updated_files": ["/app/backend/tests/test_candle_api.py"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (all requested flows: onboarding, join, two-device reveal, streak, reload persistence, wall seeds, plans tab)"},
+  "seed_data_creation": "Each POST /api/pairs seeds 6 memories by design. Tests intentionally create fresh pairs per case (device_ids prefixed 'TEST-') and do not touch pre-existing data. Some test pairs remain in DB but are all uniquely identified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend at BASE=/api, WebSocket at /api/ws/{pair_id} (wss://). Frontend is a single Expo Router screen (app/index.tsx) with an internal state machine — no /api-prefixed page routes. Two-device testing MUST use two browser contexts (page.context.browser.new_context) so AsyncStorage device IDs differ. Plans FAB testID is 'plans-add-fab'. The Invite->Main auto-advance uses a 2s polling loop, so allow up to ~4s after second member joins.",
+  "rca_of_issue": "No bugs found."
+}
